@@ -1,0 +1,91 @@
+#!/usr/bin/env python2.7
+
+
+import sys
+
+def ip_dec2bin(ip_dec):
+    """
+    ip_dec2bin(): make binary representation of IP address decimal representation
+    e.g. "10.0.2.1" -> "00001010000000000000002000000001"
+    """
+    ip_p1 = ip_dec.split('.')
+    ip_num = ((int(ip_p1[0])*256+int(ip_p1[1]))*256+int(ip_p1[2]))*256+int(ip_p1[3])
+    ip_str = ''
+    for i in xrange(32):
+        ip_str = str(ip_num % 2) + ip_str
+        ip_num = ip_num / 2
+#    print "ip_dec2bin: %s -> %s" % (ip_dec, ip_str)
+    return ip_str
+
+def ip_bin2dec(ip_bin):
+    """
+    ip_bin2dec(): make decimal representation of IP address binary representation
+    e.g. "00001010000000000000002000000001" -> "10.0.2.1"
+    """
+    ip = ip_bin + '0'*(32-len(ip_bin))
+    ip_nums = []
+    for i in xrange(4):
+        cn=0
+        for j in xrange(8):
+            cn = cn*2 + int(ip[i*8+j])
+        ip_nums.append(cn)
+    ip_dec=".".join(map(str, ip_nums))
+#    print "ip_bin2dec: %s -> %s" % (ip_bin, ip_dec)
+    return ip_dec
+
+if len(sys.argv) != 1:
+    print """merge_ipv4_subnets: merges IPv4 subnets into bigger subnets, removes duplicate subnets
+usage: merge_ipv4_subnets < list-of-subnets.txt
+subnets must be written in the following form: IP/MASK, one IP per line
+for example:
+10.0.0.0/8
+192.168.0.0/16"""
+    sys.exit(0)
+
+ips=[]
+for line in sys.stdin:
+    ip_raw = line.rstrip().split('/')
+    ip_str = ip_dec2bin(ip_raw[0])
+    if len(ip_raw) == 1:
+        ip_raw.append('32')
+    mask = int(ip_raw[1])
+#    print ip_str[:mask]
+    ips.append((ip_str[:mask], mask))
+
+skipped = True
+while skipped:
+    skipped = False
+    new_ips=[]
+    ips.sort(key=lambda ip:ip[0])
+#    for k in ips:
+#        print '#%s' % ip_bin2dec(k[0])
+    i=1
+    while i<len(ips):
+        ip1 = ips[i-1][0]
+        mask1 = ips[i-1][1]
+        ip2 = ips[i][0]
+        mask2 = ips[i][1]
+        if mask1 == mask2 and ip1[:-1] == ip2[:-1] and ip1[-1] != ip2[-1]:
+#            print "merging \n%s and \n%s to \n%s" % (ip_bin2dec(ip1), ip_bin2dec(ip2), ip_bin2dec(ip1[:-1]))
+            new_ips.append((ip1[:-1], mask1-1))
+            i = i+1
+            skipped = True
+        elif mask1 == mask2 and ip1 == ip2:
+#            print "merging \n%s and \n%s to \n%s" % (ip1, ip2, ip1)
+            new_ips.append((ip1, mask1))
+            i = i+1
+            skipped = True
+        elif mask1 < mask2 and ip1 == ip2[:mask1]:
+#            print "merging \n%s and \n%s to \n%s" % (ip1, ip2, ip1)
+            new_ips.append((ip1, mask1))
+            i = i+1
+            skipped = True
+        else:
+            new_ips.append((ip1, mask1))
+        i = i+1
+    if i == len(ips):
+        new_ips.append(ips[i-1])
+    ips=new_ips[:]
+
+for ip in ips:
+    print "%s/%s" % (ip_bin2dec(ip[0]), ip[1])
