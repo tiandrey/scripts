@@ -1,0 +1,52 @@
+#!/bin/bash
+declare -A children
+declare -A removed
+DEBUG=
+
+dfs_rmmod() {
+    if [[ -n $DEBUG ]]; then
+        echo "Removing dependencies of $1"
+    fi
+    removed[$1]=1
+    for c in ${children[$1]}; do
+        if [[ ${removed[$c]} = 0 ]]; then
+            dfs_rmmod $c
+        fi
+    done
+    if [[ -n $DEBUG ]]; then
+        echo "Removing $1"
+    fi
+    rmmod $1 || { echo "Failed to remove module $1, probably because some programs still use it."; exit 1; }
+}
+
+help() {
+    cat <<EOH
+$0: recursive rmmod - remove module(s) with those depending on them.
+Usage: $0 [-d] module ...
+    -d: enable debug output
+EOH
+}
+
+while getopts "dh" debug; do
+    if [[ $debug == "d" ]]; then
+        DEBUG=y
+    else
+        help
+    fi
+done
+
+if [[ $EUID != 0 ]]; then
+    echo "Warning: only root can remove kernel modules!"
+fi
+
+while read mod s num deps; do
+    removed[$mod]=0
+    children[$mod]=$(echo $deps | tr ',' ' ')
+done <<< "$(lsmod | tail -n +2)"
+
+shift $((OPTIND-1))
+for mod in $*; do
+    if [[ ${removed[$mod]} = 0 ]]; then
+        dfs_rmmod $mod
+    fi
+done
