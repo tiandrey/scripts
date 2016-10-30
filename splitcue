@@ -16,9 +16,8 @@ help()
 {
     echo "splitcue: split image file (flac, ape, wav, etc) according to cue-file"
     echo "Usage: $(basename $0) [options] <image-file> [<cue-file>]"
-    echo "<cue-file> defaults to the only .cue file in current directory, otherwise you need to select it obviously"
-    echo "Note: options should be adjusted in the given order!"
-    echo "Supported options:"
+    echo "<cue-file> defaults to the only .cue file in current directory, otherwise you need to select it explicitly"
+    echo "Options:"
     echo "        -t <file-format>         : target file format. Supported formats are: wav,flac,mp3,ogg. Defaults to flac"
     echo "        -o <encoder-options>     : pass additional options to encoder (encoder is: none for wav, flac for flac, lame for mp3, oggenc for ogg)"
     echo "        -e <tag-encoding>        : iconv contents of cuefile -f <tag-encoding>"
@@ -31,85 +30,41 @@ help()
     exit 1
 }
 
-TYPE="flac"
-if [ "$1" == "-t" ]; then
-    shift
-    TYPE="$1"
-    shift
-    if [ "$TYPE" != mp3 -a "$TYPE" != flac -a "$TYPE" != wav -a "$TYPE" != ogg ]; then
-        echo "Unknown file format"
-        help
-    fi
-fi
-
 check shntool
 
-case $TYPE in
-    flac) check flac;;
-    mp3) check lame;;
-    ogg) check oggenc;;
-    *) ;;
-esac
-
+TYPE="flac"
 ADDOPT=""
-if [ "$1" == "-o" ]; then
-    shift
-    ADDOPT="$1"
-    shift
-fi
-
 ICONV=""
-if [ "$1" == "-e" ]; then
-    shift
-    check iconv
-    ICONV="-f $1"
-    shift
-fi
-
 NOPREGAP="yes"
-if [ "$1" == "-n" ]; then
-    shift
-    NOPREGAP=""
-fi
-
 DIR=""
-if [ "$1" == "-d" ]; then
-    shift
-    DIR="$1"
-    shift
-fi
-
 force_artist=""
-if [ "$1" == "--artist" ]; then
-    shift
-    force_artist=yes
-    artist="$1"
-    shift
-fi
-
 force_album=""
-if [ "$1" == "--album" ]; then
-    shift
-    force_album=yes
-    album="$1"
-    shift
-fi
-
 force_date=""
-if [ "$1" == "--date" ]; then
-    shift
-    force_date=yes
-    date="$1"
-    shift
-fi
-
 force_genre=""
-if [ "$1" == "--genre" ]; then
+
+while [[ $1 == "-*" ]]; do
+    case "$1" in
+        -t)
+            shift
+            TYPE="$1"
+            case $TYPE in
+                flac) check flac ;;
+                mp3) check lame ;;
+                ogg) check oggenc ;;
+                *) echo "Unknown file format"; help ;;
+            esac
+            ;;
+        -o) shift; ADDOPT="$1" ;;
+        -e) shift; check iconv; ICONV="-f $1" ;;
+        -n) NOPREGAP="" ;;
+        -d) shift; DIR="$1" ;;
+        --artist) shift; force_artist=yes; artist="$1" ;;
+        --album)  shift; force_album=yes;  album="$1" ;;
+        --date)   shift; force_date=yes;   date="$1" ;;
+        --genre)  shift; force_genre=yes;  genre="$1" ;;
+    esac
     shift
-    force_genre=yes
-    genre="$1"
-    shift
-fi
+done
 
 FILE="$1"
 if [ ! -f "$FILE" ]; then
@@ -188,11 +143,33 @@ for file in [0-9]*.wav; do
     fi
     title=$(echo ${file:2} | sed 's/\.wav$//')
     if [ $TYPE == flac ]; then
-        nice flac   $ADDOPT -s             -T   "artist=$artist" -T   "album=$album" -T   "title=$title" -T   "tracknumber=$tracknr" -T   "date=$date" -T   "genre=$genre" "$file"                                           && rm "$file"
+        nice flac $ADDOPT -s \
+            -T "artist=$artist" \
+            -T "album=$album" \
+            -T "title=$title" \
+            -T "tracknumber=$tracknr" \
+            -T "date=$date" \
+            -T "genre=$genre" \
+            "$file" && rm "$file"
     elif [ $TYPE == mp3 ]; then
-        nice lame   $ADDOPT -S --add-id3v2 --ta "$artist"        --tl "$album"       --tt "$title"       --tn "$tracknr"             --ty "$date"      --tg "$genre"       "$file"    "$(echo $file | sed 's/\.wav$/.mp3/')" && rm "$file"
+        nice lame $ADDOPT -S \
+        --add-id3v2 \
+        --ta "$artist" \
+        --tl "$album" \
+        --tt "$title" \
+        --tn "$tracknr" \
+        --ty "$date" \
+        --tg "$genre" \
+        "$file" "${file/.wav.mp3}" && rm "$file"
     elif [ $TYPE == ogg ]; then
-        nice oggenc $ADDOPT -Q             -a   "$artist"        -l   "$album"       -t   "$title"       -N   "$tracknr"             -d   "$date"      -G   "$genre"       "$file" -o "$(echo $file | sed 's/\.wav$/.ogg/')" && rm "$file"
+        nice oggenc $ADDOPT -Q \
+        -a "$artist" \
+        -l "$album" \
+        -t "$title" \
+        -N "$tracknr" \
+        -d "$date" \
+        -G "$genre" \
+        "$file" -o "${file/.wav/.ogg}" && rm "$file"
     fi
 done
 
