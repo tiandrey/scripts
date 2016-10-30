@@ -1,0 +1,45 @@
+#!/bin/bash
+
+if [ "$1" == "-h" -o "$1" == "--help" ]; then
+    echo "get-free-ip-list: search for free and unused IP addresses in /24 subnets. Usage:"
+    echo "$0 [-1] <network1> [<network2> ...]"
+    echo "    -1          show 1 IP per line (long output)"
+    echo "    <networkX>  /24 network to look through with .0 at the end (e.g. 1.2.3.0)"
+    exit 1
+fi
+
+ONEPERLINE=0
+if [ "$1" == "-1" ]; then
+    ONEPERLINE=1
+    shift
+fi
+
+if [ -n "$1" ]; then
+    NETWORKS=""
+    for net in $*; do
+        NETWORK=`echo $net | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+\.'`
+        if [ "$?" -ne 0 ]; then
+            echo "Network $1 is incorrect"
+            exit 2
+        fi
+        NETWORKS="$NETWORKS $NETWORK"
+    done
+fi
+
+IPS=""
+
+for NETWORK in $NETWORKS; do
+    for i in `seq 1 254`; do
+        IPS="$IPS\n$NETWORK$i"
+    done
+done
+
+LINES="$(echo -e "$IPS" | xargs -n 1 -I VAR -P 254 sh -c "ping -n -c1 -w1 -q VAR >/dev/null || ping -n -c1 -w1 -q VAR >/dev/null || { host VAR >/dev/null && echo \"Unpingable VAR but DNS record exists: \`host VAR\`\" || echo Free VAR ; }" | sort -n -t . -k 2,2 -k 3,3 -k 4,4)"
+if [ $ONEPERLINE == 1 ]; then
+    echo "$LINES"
+else
+    echo "$LINES" | awk 'BEGIN { b=0; e=255; i1=0; i2=0; i3=0; } function myprint() { if (b != 0) { if (b != e) {
+print("Free " i1 "." i2 "." i3 ".[" b "-" e "]") } else { print("Free " i1 "." i2 "." i3 "." e) } } }
+{ split($2, ip, "."); if ($1 == "Unpingable" || ip[4] != e+1) { myprint(); if ($1 == "Unpingable") { b=0; e=255; print($0);
+} else { i1=ip[1]; i2=ip[2]; i3=ip[3]; b=ip[4]; e=b;} } else { e=e+1; } } END { myprint(); }'
+fi
