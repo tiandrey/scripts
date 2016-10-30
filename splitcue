@@ -1,0 +1,199 @@
+#!/bin/bash
+
+# Andrey Tikhonov (tiacorpo@gmail.com)
+# split image file (flac, ape, wac, etc) according to cue-file
+# based on script found somewhere in the web
+
+check()
+{
+    if ! type $1 &>/dev/null; then
+        echo "$1 not found in your PATH! Please install $1 or fix your PATH and try again."
+        exit 1;
+    fi
+}
+
+help()
+{
+    echo "splitcue: split image file (flac, ape, wav, etc) according to cue-file"
+    echo "Usage: $(basename $0) [options] <image-file> [<cue-file>]"
+    echo "<cue-file> defaults to the only .cue file in current directory, otherwise you need to select it obviously"
+    echo "Note: options should be adjusted in the given order!"
+    echo "Supported options:"
+    echo "        -t <file-format>         : target file format. Supported formats are: wav,flac,mp3,ogg. Defaults to flac"
+    echo "        -o <encoder-options>     : pass additional options to encoder (encoder is: none for wav, flac for flac, lame for mp3, oggenc for ogg)"
+    echo "        -e <tag-encoding>        : iconv contents of cuefile -f <tag-encoding>"
+    echo "        -n                       : do not remove pregap"
+    echo "        -d <directory>           : put splitted files into <directory>"
+    echo "        --artist <artist>        : force setting artist tag to <artist>"
+    echo "        --album <album>          : force setting album tag to <album>"
+    echo "        --date <date>            : force setting date tag to <date>"
+    echo "        --genre <genre>          : force setting genre tag to <genre>"
+    exit 1
+}
+
+TYPE="flac"
+if [ "$1" == "-t" ]; then
+    shift
+    TYPE="$1"
+    shift
+    if [ "$TYPE" != mp3 -a "$TYPE" != flac -a "$TYPE" != wav -a "$TYPE" != ogg ]; then
+        echo "Unknown file format"
+        help
+    fi
+fi
+
+check shntool
+
+case $TYPE in
+    flac) check flac;;
+    mp3) check lame;;
+    ogg) check oggenc;;
+    *) ;;
+esac
+
+ADDOPT=""
+if [ "$1" == "-o" ]; then
+    shift
+    ADDOPT="$1"
+    shift
+fi
+
+ICONV=""
+if [ "$1" == "-e" ]; then
+    shift
+    check iconv
+    ICONV="-f $1"
+    shift
+fi
+
+NOPREGAP="yes"
+if [ "$1" == "-n" ]; then
+    shift
+    NOPREGAP=""
+fi
+
+DIR=""
+if [ "$1" == "-d" ]; then
+    shift
+    DIR="$1"
+    shift
+fi
+
+force_artist=""
+if [ "$1" == "--artist" ]; then
+    shift
+    force_artist=yes
+    artist="$1"
+    shift
+fi
+
+force_album=""
+if [ "$1" == "--album" ]; then
+    shift
+    force_album=yes
+    album="$1"
+    shift
+fi
+
+force_date=""
+if [ "$1" == "--date" ]; then
+    shift
+    force_date=yes
+    date="$1"
+    shift
+fi
+
+force_genre=""
+if [ "$1" == "--genre" ]; then
+    shift
+    force_genre=yes
+    genre="$1"
+    shift
+fi
+
+FILE="$1"
+if [ ! -f "$FILE" ]; then
+    echo "File you selected not found! ($FILE)"
+    help
+fi
+
+CUEFILE="$2"
+if [ -z "$CUEFILE" ]; then
+    if [ $(ls *.cue | wc -l) -eq 1 ]; then CUEFILE="$(ls *.cue)"; fi
+    if [ $(ls *.cue | wc -l) -eq 0 ]; then
+        echo "There aren't any cuesheets in current directory and you didn't select it obviously!"
+        help
+    fi
+    if [ $(ls *.cue | wc -l) -gt 1 ]; then
+        echo "There are more than one cuesheet in current directory and you didn't select it obviously!"
+        help
+    fi
+else
+    if [ ! -f "$CUEFILE" ]; then
+        echo "Cuesheet you selected not found! ($CUEFILE)"
+        help
+    fi
+fi
+
+if [ -n "$ICONV" ]; then
+    NEWCUEFILE=/tmp/$(basename "$CUEFILE");
+    iconv $ICONV "$CUEFILE" > "$NEWCUEFILE"
+    CUEFILE="$NEWCUEFILE"
+fi
+
+if [ -z "$force_album" ]; then album=$(grep -m 1 TITLE "$CUEFILE" | cut -d\" -f2);  fi
+if [ -z "$force_artist" ]; then artist=$(grep -m 1 PERFORMER "$CUEFILE" | cut -d\" -f2); fi
+if [ -z "$force_date" ]; then date=$(grep -m 1 "REM DATE" "$CUEFILE" | cut -c 10-13); fi
+if [ -z "$force_genre" ]; then
+    genre=$(grep -m 1 "REM GENRE" "$CUEFILE" | cut -d\" -f2)
+    if [ "$(cut -c 1-9 <<< "$genre")" = "REM GENRE" ]; then genre=$(cut -c 11- <<< "$genre"); fi
+fi
+
+echo "Summary:"
+echo "    Artist            : $artist"
+echo "    Album             : $album"
+echo "    Date              : $date"
+echo "    Genre             : $genre"
+echo "    Remove pregap     : $( [ -n "$NOPREGAP" ] && echo -n yes || echo -n no )"
+echo "    Output file type  : $TYPE"
+echo "    Additional options: $ADDOPT"
+echo "    Output directory  : $( [ -n "$DIR" ] && echo -n $DIR || echo -n . )"
+echo
+sleep 1
+
+if grep -q "INDEX 01 00:00:00" "$CUEFILE" || grep -q "INDEX 01 00:00\$" "$CUEFILE"; then
+    nice shntool split -t "%n %t" -f "$CUEFILE" "$FILE"
+else
+    echo "The first track has a pre-gap."
+    if [ -z "$NOPREGAP" ]; then
+        echo "shntool will cut that off and put it in a separate file."
+    else
+        echo "The pregap will be removed. If you do not want that, use the '-n' option (see help)"
+    fi
+    nice shntool split -t "%n %t" -f "$CUEFILE" "$FILE"
+    if [ -n "$NOPREGAP" ]; then rm "00 pregap.wav"; fi
+fi
+
+if [ "$TYPE" == "wav" ]; then exit 0; fi
+echo "Splitting done, now encoding wav-files"
+
+if [ -n "$NEWCUEFILE" ]; then rm "$NEWCUEFILE"; fi
+
+for file in [0-9]*.wav; do
+    echo "Encoding $file"
+    if [[ ${file:0:1} == 0 ]] ; then
+        tracknr=${file:1:1}
+    else
+        tracknr=${file:0:2}
+    fi
+    title=$(echo ${file:2} | sed 's/\.wav$//')
+    if [ $TYPE == flac ]; then
+        nice flac   $ADDOPT -s             -T   "artist=$artist" -T   "album=$album" -T   "title=$title" -T   "tracknumber=$tracknr" -T   "date=$date" -T   "genre=$genre" "$file"                                           && rm "$file"
+    elif [ $TYPE == mp3 ]; then
+        nice lame   $ADDOPT -S --add-id3v2 --ta "$artist"        --tl "$album"       --tt "$title"       --tn "$tracknr"             --ty "$date"      --tg "$genre"       "$file"    "$(echo $file | sed 's/\.wav$/.mp3/')" && rm "$file"
+    elif [ $TYPE == ogg ]; then
+        nice oggenc $ADDOPT -Q             -a   "$artist"        -l   "$album"       -t   "$title"       -N   "$tracknr"             -d   "$date"      -G   "$genre"       "$file" -o "$(echo $file | sed 's/\.wav$/.ogg/')" && rm "$file"
+    fi
+done
+
+if [ -n "$DIR" ]; then mkdir -p "$DIR" && mv [0-9]*.$TYPE "$DIR"; fi
