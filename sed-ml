@@ -1,0 +1,5 @@
+#!/bin/bash
+if [[ "$1" == "-e" ]]; then
+    shift
+fi
+exec sed -e ':l N;$!bl' -e "$@"
