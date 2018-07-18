@@ -1,5 +1,6 @@
 #!/bin/bash
 # TODO: use fakeroot
+# TODO: do something with .data directory
 # TODO: parse dependecy versions - not so easy https://www.python.org/dev/peps/pep-0345/#version-specifiers
 
 LIBDIRPREFIX="/usr/lib"
@@ -199,8 +200,8 @@ EOF
 #!/bin/sh
 set -e
 
-if which py3compile >/dev/null 2>&1; then
-    py3compile -p ${PREFIX}${NAME}
+if which pycompile >/dev/null 2>&1; then
+    pycompile -p ${PREFIX}${NAME}
 fi
 EOF
 fi
