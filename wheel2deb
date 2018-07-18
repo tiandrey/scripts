@@ -1,0 +1,213 @@
+#!/bin/bash
+# TODO: use fakeroot
+# TODO: parse dependecy versions - not so easy https://www.python.org/dev/peps/pep-0345/#version-specifiers
+
+LIBDIRPREFIX="/usr/lib"
+LIBDIRPOSTFIX="/dist-packages"
+DEPPREFIX=""
+PREFIX=""
+PYVERSION=""
+ARCH=""
+NAME=""
+VERSION=""
+MAINTAINER=""
+
+if [[ $# == 0 ]] || [[ "$1" == "--help" ]]; then
+    cat <<EOF
+wheel2deb: convert python wheel to debian package
+Usage: $0 [options] path/to/python/wheel.whl
+Options:
+    -n NAME, --name NAME
+        set package name
+    -v VERSION, --version VERSION
+        set package version
+    -p PYVERSION, --pyversion PYVERSION
+        set python version
+    -a ARCH, --arch ARCH
+        set package architecture
+    -m MAINTAINER, --maintainer MAINTAINER
+        set package maintaner info
+    --prefix PREFIX
+        set package install prefix (defaults to $LIBDIRPREFIX)
+    --name-prefix NAMEPREFIX
+        set package name prefix (defaults to python- for python2.X and python3- for python3.X)
+EOF
+    exit 1
+fi
+
+while [[ $1 == -* ]]; do
+    case $1 in
+        -a|--arch|--architecture)
+            shift; ARCH=$1 ;;
+        -v|--version)
+            shift; VERSION=$1 ;;
+        -p|--pyversion)
+            shift; PYV=$1 ;;
+        -n|--name)
+            shift; NAME=$1 ;;
+        -m|--maintainer)
+            shift; MAINTAINER=$1 ;;
+        --prefix)
+            shift; LIBDIRPREFIX=$1 ;;
+        --name-prefix)
+            shift; PREFIX=$1 ;;
+        *)
+            echo "Unrecognized option: '$1'. Run '$0 --help'."; exit 1 ;;
+    esac
+    shift
+done
+
+DIR=`mktemp -d`
+CWD=$PWD
+
+function finish {
+    popd > /dev/null
+    rm -rf "$DIR"
+}
+trap finish EXIT
+
+# Parse wheel name
+FN=$(basename "$1" | sed 's/.whl$//')
+# package name
+if [[ -z $NAME ]]; then
+    NAME=$(echo "$FN" | cut -d - -f 1 | tr _ -)
+fi
+# package version
+if [[ -z $VERSION ]]; then
+    VERSION=$(echo "$FN" | cut -d - -f 2 | tr _ -)
+fi
+# python version
+if [[ -z $PYV ]]; then
+    PYTAG=$(echo "$FN" | cut -d - -f 3)
+    if [[ $(echo $PYTAG | tr -cd [:digit:]) == 3* ]]; then
+        PYVERSION=3
+        PYV=3
+    elif [[ $(echo $PYTAG | tr -cd [:digit:]) == 26 ]]; then
+        PYVERSION=2
+        PYV=2.6
+    elif [[ $(echo $PYTAG | tr -cd [:digit:]) == 25 ]]; then
+        PYVERSION=2
+        PYV=2.5
+    else
+        PYVERSION=2
+        PYV=2.7
+    fi
+else
+    PYVERSION=$(echo $PYV | cut -c 1)
+fi
+# package architecture
+if [[ -z $ARCH ]]; then
+    PLATFORM=$(echo "$FN" | cut -d - -f 5)
+    if [[ $PLATFORM == any ]]; then ARCH="all"
+    elif [[ $PLATFORM == *linux* ]]; then
+        if [[ $PLATFORM == *_x86_64 ]] || [[ $PLATFORM == *_amd64 ]]; then ARCH="amd64"
+        elif [[ $PLATFORM == *_i686 ]] || [[ $PLATFORM == *_i386 ]]; then ARCH="i386"
+        else echo "Could not parse package architecture: '$PLATFORM', guessing architecture 'all'"; ARCH="all"
+        fi
+    else
+        echo "Could not parse package architecture: '$PLATFORM', guessing architecture 'all'"; ARCH="all"
+    fi
+fi
+# package maintainer
+if [[ -z $MAINTAINER ]]; then
+    MAINTAINER="$(getent passwd $UID | cut -d : -f 5 | cut -d , -f 1) <$(id -un)@$(hostname -f)>"
+fi
+# package name prefix
+if [[ -z $PREFIX ]]; then
+    if [[ $PYVERSION == 3 ]]; then PREFIX="python3-"
+    else PREFIX="python-"
+    fi
+fi
+# package dependencies name prefix
+if [[ $PYVERSION == 3 ]]; then DEPPREFIX="python3-"
+else DEPPREFIX="python-"
+fi
+
+PN="${PREFIX}${NAME}_${VERSION}_${ARCH}.deb"
+LIBDIR="${LIBDIRPREFIX}/python${PYV}${LIBDIRPOSTFIX}"
+
+cat <<EOF
+Creating package: ${PN}
+Install dir:	${LIBDIR}
+
+EOF
+
+unzip -q "$1" -d "$DIR"
+pushd "$DIR" > /dev/null
+
+mkdir -p .deb-root/DEBIAN
+C=".deb-root/DEBIAN/control"
+{ cat | tee $C; } <<EOF
+Package: ${PREFIX}${NAME}
+Version: ${VERSION}
+Maintainer: ${MAINTAINER}
+Architecture: ${ARCH}
+EOF
+
+MD=${NAME}-${VERSION}.dist-info/METADATA
+META="$(cat $MD)"
+rm -rf ${NAME}-${VERSION}.dist-info
+HOMEPAGE=$(echo "$META" | grep '^Home-page: ' | sed 's/^Home-page: /Homepage: /')
+if [[ -n $HOMEPAGE ]]; then echo "$HOMEPAGE" | tee -a $C; fi
+echo "$META" | grep '^Requires-Dist:' | cut -c 16- | { DEPENDS=""; while read DEP VER EXTRA; do
+    if [[ -z $EXTRA ]]; then
+        if [[ -z $DEPENDS ]]; then DEPENDS="Depends: ${DEPPREFIX}${DEP}"
+        else DEPENDS="${DEPENDS}, ${DEPPREFIX}${DEP}"
+        fi
+    fi
+done
+if [[ -n $DEPENDS ]]; then echo "$DEPENDS" | tee -a $C; fi
+}
+{ echo -n "Description: "; echo "$META" | grep '^Summary:' | cut -c 10- ; } | tee -a $C
+
+# Create prerm & postinst
+if [[ $PYVERSION == 3 ]]; then
+    cat > .deb-root/DEBIAN/prerm <<EOF
+#!/bin/sh
+set -e
+
+if which py3clean >/dev/null 2>&1; then
+    py3clean -p ${PREFIX}${NAME}
+else
+    dpkg -L ${PREFIX}${NAME} | perl -ne 's,/([^/]*)\.py$,/__pycache__/\1.*, or next; unlink $_ or die $! foreach glob($_)'
+    find ${LIBDIR}/ -type d -name __pycache__ -empty -print0 | xargs --null --no-run-if-empty rmdir
+fi
+EOF
+    cat > .deb-root/DEBIAN/postinst <<EOF
+#!/bin/sh
+set -e
+
+if which py3compile >/dev/null 2>&1; then
+    py3compile -p ${PREFIX}${NAME}
+fi
+EOF
+else
+    cat > .deb-root/DEBIAN/prerm <<EOF
+#!/bin/sh
+set -e
+
+if which pyclean >/dev/null 2>&1; then
+    pyclean -p ${PREFIX}${NAME}
+else
+    dpkg -L ${PREFIX}${NAME} | grep \.py$ | while read file
+    do
+        rm -f "${file}"[co] >/dev/null
+    done
+fi
+EOF
+    cat > .deb-root/DEBIAN/postinst <<EOF
+#!/bin/sh
+set -e
+
+if which py3compile >/dev/null 2>&1; then
+    py3compile -p ${PREFIX}${NAME}
+fi
+EOF
+fi
+chmod +x .deb-root/DEBIAN/prerm
+chmod +x .deb-root/DEBIAN/postinst
+
+mkdir -p .deb-root/$LIBDIR
+cp -a * .deb-root/$LIBDIR/
+
+dpkg-deb -b .deb-root $CWD/$PN

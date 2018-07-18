@@ -5,3 +5,4 @@
 * sed-ml: multiline sed
 * splitcue: split trac according to cue sheet
 * swaptop: show which processes reside in swap
+* wheel2deb: converts Python wheels to Debian packages (alpha state)
