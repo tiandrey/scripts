@@ -1,0 +1,2 @@
+#!/bin/bash
+for file in /proc/*/status ; do awk '/^VmSwap|^Name|^Pid/ {printf $2 " " $3} END { print ""}' $file; done | awk '{ printf("%8d %s %5d/%s\n", $3, $4, $2, $1)}' | sort -k 1,1rn

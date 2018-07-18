@@ -4,3 +4,4 @@
 * rrmmod: recursively remove modules with those depending on them
 * sed-ml: multiline sed
 * splitcue: split trac according to cue sheet
+* swaptop: show which processes reside in swap
