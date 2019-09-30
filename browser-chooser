@@ -1,4 +1,30 @@
 #!/bin/bash
+
+if [[ "$1" = "--help" ]] || [[ "$1" = "-h" ]]; then
+    echo "$0: show dialog for choosing browser to open URL. Usage: $0 <URL>"
+    cat <<EOF
+How to make $0 default browser:
+1) (as root) copy $0 to a directory from \$PATH, presumably to '/usr/local/bin', name it 'browser-chooser'
+2) (as root) create file '/usr/share/applications/browser-chooser.desktop' with the following content:
+[Desktop Entry]
+Version=1.0
+Name=Browser Chooser
+GenericName=Web Browser
+Exec=browser-chooser %u
+Terminal=false
+X-MultipleArgs=false
+Type=Application
+Categories=GNOME;GTK;Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;application/xml;application/rss+xml;application/rdf+xml;image/gif;image/jpeg;image/png;x-scheme-handler/http;x-scheme-handler/https;x-scheme-handler/ftp;x-scheme-handler/chrome;video/webm;application/x-xpinstall;
+3) (as root) run 'update-desktop-database'
+3) (as user) run the following commands:
+xdg-settings set default-url-scheme-handler http browser-chooser.desktop
+xdg-settings set default-url-scheme-handler https browser-chooser.desktop
+xdg-settings set default-web-browser browser-chooser.desktop
+EOF
+    exit 0
+fi
+
 type -p zenity >/dev/null || { echo "Error: zenity not found in PATH"; exit 1; }
 
 # first array looks redundant, but is used for setting browser order
