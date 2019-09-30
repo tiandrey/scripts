@@ -1,0 +1,15 @@
+#!/bin/bash
+type -p zenity >/dev/null || { echo "Error: zenity not found in PATH"; exit 1; }
+
+# first array looks redundant, but is used for setting browser order
+declare -a BN=('Firefox' 'Firefox (New window)' 'Firefox (Private mode in new window)' 'Google Chrome' 'Google Chrome (Incognito)')
+declare -A B
+B['Firefox']='firefox'
+B['Firefox (New window)']='firefox --new-window'
+B['Firefox (Private mode in new window)']='firefox --private-window'
+B['Google Chrome']='google-chrome'
+B['Google Chrome (Incognito)']='google-chrome --incognito'
+
+BS="$(zenity --list --height=270 --width=400 --title "Select browser" --text "" --window-icon=question --hide-header --column "Browser" "${BN[@]}")"
+
+exec ${B[$BS]} "$@"
