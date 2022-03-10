@@ -7,3 +7,4 @@
 * splitcue: split track according to cue sheet
 * swaptop: show which processes reside in swap
 * wheel2deb: converts Python wheels to Debian packages (alpha state)
+* catcertchain: show info about all certificates in certificate chain

@@ -42,7 +42,7 @@ force_album=""
 force_date=""
 force_genre=""
 
-while [[ $1 == "-*" ]]; do
+while [[ $1 == -* ]]; do
     case "$1" in
         -t)
             shift
@@ -160,7 +160,7 @@ for file in [0-9]*.wav; do
         --tn "$tracknr" \
         --ty "$date" \
         --tg "$genre" \
-        "$file" "${file/.wav.mp3}" && rm "$file"
+        "$file" "${file/.wav/.mp3}" && rm "$file"
     elif [ $TYPE == ogg ]; then
         nice oggenc $ADDOPT -Q \
         -a "$artist" \

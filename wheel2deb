@@ -1,6 +1,5 @@
 #!/bin/bash
-# TODO: use fakeroot
-# TODO: do something with .data directory
+# TODO: use checkinstall
 # TODO: parse dependecy versions - not so easy https://www.python.org/dev/peps/pep-0345/#version-specifiers
 
 LIBDIRPREFIX="/usr/lib"
